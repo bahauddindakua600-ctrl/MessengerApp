@@ -30,13 +30,34 @@ public class MainActivity extends AppCompatActivity {
         "facebook.com/login",
         "facebook.com/checkpoint",
         "facebook.com/two_step_verification",
+        "facebook.com/two-step-verification",
+        "facebook.com/recover",
+        "facebook.com/device-based",
+        "facebook.com/login/",
         "accounts.facebook.com",
         "edge-chat.facebook.com",
         "z-m-upload.facebook.com",
         "lookaside.fbsbx.com",
         "cdn.fbsbx.com",
         "video.xx.fbcdn.net",
-        "graph.facebook.com"
+        "graph.facebook.com",
+        // Arkose Labs / security check URLs
+        "funcaptcha.com",
+        "arkoselabs.com",
+        "arkose",
+        "matchkey",
+        // Facebook auth / identity
+        "facebook.com/identity",
+        "facebook.com/authenticate",
+        "facebook.com/ajax",
+        "facebook.com/noscript"
+    };
+
+    // ── Keywords that indicate login/verification is in progress ─────────────
+    private static final String[] LOGIN_KEYWORDS = {
+        "login", "checkpoint", "two_step", "two-step",
+        "device-based", "recover", "identity", "authenticate",
+        "security", "verification", "sms", "otp", "code"
     };
 
     @Override
@@ -79,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("https://www.messenger.com/login");
     }
 
-    // ── WebView setup ──────────────────────────────────────────────────────
+    // ── WebView setup ───────────────────────────────────────────────────────
     private void setupWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -91,7 +112,7 @@ public class MainActivity extends AppCompatActivity {
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // Real desktop Chrome UA – Facebook desktop login, WebView-তে লগইন করতে
+        // Real desktop Chrome UA
         s.setUserAgentString(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -103,16 +124,23 @@ public class MainActivity extends AppCompatActivity {
             public boolean shouldOverrideUrlLoading(
                     WebView view, WebResourceRequest req) {
                 String url = req.getUrl().toString();
+
+                // 1. Always allow URLs in the ALLOWED list
                 for (String allowed : ALLOWED) {
-                    if (url.contains(allowed)) return false; // allow
+                    if (url.contains(allowed)) return false;
                 }
-                // ✅ FIX: facebook.com-এ block না করে messenger.com-এ redirect
-                // লগইনের পর Facebook facebook.com/-এ redirect করে, সেটাকে
-                // messenger.com/–এ পাঠাই যাতে login loop না হয়।
+
+                // 2. Allow any facebook.com URL that looks like login/verification
                 if (url.contains("facebook.com")) {
+                    String urlLower = url.toLowerCase();
+                    for (String kw : LOGIN_KEYWORDS) {
+                        if (urlLower.contains(kw)) return false; // allow
+                    }
+                    // Only redirect truly non-login facebook pages
                     view.loadUrl("https://www.messenger.com/");
                     return true;
                 }
+
                 return false;
             }
 
@@ -162,25 +190,39 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ✅ FIX: JavaScript inject – facebook.com redirect loop বন্ধ
-    // লগইনের পর facebook.com-এ গেলে /login-এ না পাঠিয়ে messenger.com home-এ পাঠাই
+    // ✅ FIX: JavaScript inject – do NOT redirect during login/2FA/checkpoint
     private void injectLoginFix(WebView view, String url) {
         String js = "(function() {" +
-            // Check if we're on the marketing page (no login form visible)
+            "var href = window.location.href;" +
+            // Detect login form
             "var loginForm = document.querySelector('input[name=\"email\"]') || " +
             "               document.querySelector('input[type=\"email\"]') || " +
             "               document.querySelector('#email');" +
-            "var isChat = window.location.href.indexOf('/t/') > -1 || " +
-            "             window.location.href.indexOf('/messages') > -1;" +
-            "var isFacebookSite = window.location.href.indexOf('facebook.com') > -1 && " +
-            "                     window.location.href.indexOf('messenger.com') === -1;" +
-            // ✅ FIX: facebook.com non-login page-এ গেলে messenger.com HOME-এ পাঠাই
-            // আগে /login-এ পাঠানো হতো, তাই login loop হতো
-            "if (!loginForm && !isChat && isFacebookSite && " +
-            "    window.location.href.indexOf('login') === -1) {" +
+            // Detect chat/messages
+            "var isChat = href.indexOf('/t/') > -1 || href.indexOf('/messages') > -1;" +
+            // Detect that we are on facebook.com (not messenger.com)
+            "var isFacebookSite = href.indexOf('facebook.com') > -1 && " +
+            "                     href.indexOf('messenger.com') === -1;" +
+            // ✅ KEY FIX: Detect ANY login/verification/checkpoint flow
+            "var isVerifying = href.indexOf('login') > -1 ||" +
+            "                  href.indexOf('checkpoint') > -1 ||" +
+            "                  href.indexOf('two_step') > -1 ||" +
+            "                  href.indexOf('two-step') > -1 ||" +
+            "                  href.indexOf('device-based') > -1 ||" +
+            "                  href.indexOf('recover') > -1 ||" +
+            "                  href.indexOf('security') > -1 ||" +
+            "                  href.indexOf('sms') > -1 ||" +
+            "                  href.indexOf('otp') > -1 ||" +
+            "                  href.indexOf('code') > -1 ||" +
+            "                  href.indexOf('verify') > -1 ||" +
+            "                  href.indexOf('authenticate') > -1 ||" +
+            "                  href.indexOf('funcaptcha') > -1 ||" +
+            "                  href.indexOf('arkose') > -1;" +
+            // Only redirect if we're on facebook.com, not in any verification, no login form, not in chat
+            "if (!loginForm && !isChat && isFacebookSite && !isVerifying) {" +
             "  window.location.href = 'https://www.messenger.com/';" +
             "}" +
-            // Hide Facebook main site link
+            // Hide Facebook main site links (only when safe to do so)
             "var css = 'a[href*=\"facebook.com/home\"]{display:none!important;}' +" +
             "          'a[aria-label=\"Facebook\"]{display:none!important;}';" +
             "var style = document.getElementById('__fb_block__');" +
@@ -194,7 +236,7 @@ public class MainActivity extends AppCompatActivity {
         view.evaluateJavascript(js, null);
     }
 
-    // ── File chooser result ────────────────────────────────────────────────
+    // ── File chooser result ─────────────────────────────────────────────────
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
@@ -209,7 +251,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ── Back button ───────────────────────────────────────────────────────
+    // ── Back button ─────────────────────────────────────────────────────────
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
