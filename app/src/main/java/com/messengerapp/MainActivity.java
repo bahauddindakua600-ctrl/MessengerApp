@@ -1,9 +1,7 @@
 package com.messengerapp;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -14,8 +12,7 @@ import android.widget.RelativeLayout;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+import androidx.browser.customtabs.CustomTabsIntent;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -27,7 +24,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_CHOOSER_REQUEST = 100;
     private static final int PERMISSION_REQUEST    = 101;
 
-    // ── Allowed URL patterns ──────────────────────────────────────────
+    // ── Allowed URL patterns ─────────────────────────────────────────────────
     private static final String[] ALLOWED = {
         "messenger.com",
         "facebook.com/login",
@@ -71,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
         RelativeLayout.LayoutParams wvParams = new RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.MATCH_PARENT,
             RelativeLayout.LayoutParams.MATCH_PARENT);
-        wvParams.addRule(RelativeLayout.BELOW, progressBar.getId());
         progressBar.setId(View.generateViewId());
         wvParams.addRule(RelativeLayout.BELOW, progressBar.getId());
         webView.setLayoutParams(wvParams);
@@ -79,44 +75,12 @@ public class MainActivity extends AppCompatActivity {
 
         setContentView(root);
 
-        requestAppPermissions();
         setupWebView();
+        // messenger.com/login এ লোড করো
         webView.loadUrl("https://www.messenger.com/login");
     }
 
-    // ── Permissions ───────────────────────────────────────────────────
-    private void requestAppPermissions() {
-        String[] needed = {
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.MODIFY_AUDIO_SETTINGS,
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        };
-        boolean required = false;
-        for (String p : needed) {
-            if (ContextCompat.checkSelfPermission(this, p)
-                    != PackageManager.PERMISSION_GRANTED) {
-                required = true;
-                break;
-            }
-        }
-        if (required) {
-            ActivityCompat.requestPermissions(this, needed, PERMISSION_REQUEST);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int code,
-            @NonNull String[] perms, @NonNull int[] results) {
-        super.onRequestPermissionsResult(code, perms, results);
-        // Re-grant any pending WebRTC permission after user grants native perms
-        if (pendingWebPermission != null) {
-            pendingWebPermission.grant(pendingWebPermission.getResources());
-            pendingWebPermission = null;
-        }
-    }
-
-    // ── WebView setup ─────────────────────────────────────────────────
+    // ── WebView setup ─────────────────────────────────────────────────────────
     private void setupWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -127,11 +91,12 @@ public class MainActivity extends AppCompatActivity {
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        // Mobile Chrome UA for best Messenger compatibility
+
+        // ★ KEY FIX: Real desktop Chrome UA — Facebook desktop login WebView-এ কাজ করে
         s.setUserAgentString(
-            "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/120.0.6099.210 Mobile Safari/537.36");
+            "Chrome/124.0.0.0 Safari/537.36");
 
         webView.setWebViewClient(new WebViewClient() {
 
@@ -155,31 +120,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView v, String url) {
                 progressBar.setVisibility(View.GONE);
-                injectCSS(v);
+                injectLoginFix(v, url);
             }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
 
-            // ── Grant camera/mic for WebRTC calls ─────────────────────
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                boolean camGranted = ContextCompat.checkSelfPermission(
-                    MainActivity.this, Manifest.permission.CAMERA)
-                    == PackageManager.PERMISSION_GRANTED;
-                boolean micGranted = ContextCompat.checkSelfPermission(
-                    MainActivity.this, Manifest.permission.RECORD_AUDIO)
-                    == PackageManager.PERMISSION_GRANTED;
-
-                if (camGranted && micGranted) {
-                    request.grant(request.getResources());
-                } else {
-                    pendingWebPermission = request;
-                    requestAppPermissions();
-                }
+                request.grant(request.getResources());
             }
 
-            // ── File picker for photo/video sending ───────────────────
             @Override
             public boolean onShowFileChooser(WebView wv,
                     ValueCallback<Uri[]> callback,
@@ -207,29 +158,36 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ── Inject CSS: hide Facebook icon & unwanted links ───────────────
-    private void injectCSS(WebView view) {
-        String css =
-            "a[href='https://www.facebook.com']{display:none!important;}" +
-            "a[href='https://facebook.com']{display:none!important;}" +
-            "a[href*='facebook.com/home']{display:none!important;}" +
-            "[aria-label='Facebook']{display:none!important;}" +
-            // Hide the top-right Facebook icon button specifically
-            "._1t2u{display:none!important;}" +
-            ".__pika_content{display:none!important;}";
-
-        String js = "(function(){" +
-            "if(document.getElementById('__fb_block__'))return;" +
-            "var s=document.createElement('style');" +
-            "s.id='__fb_block__';" +
-            "s.innerHTML='" + css + "';" +
-            "document.head.appendChild(s);" +
+    // ★ KEY FIX: JavaScript inject করে marketing page redirect ঠেকাও
+    private void injectLoginFix(WebView view, String url) {
+        // যদি marketing page-এ redirect হয়, force করে login page-এ নিয়ে যাও
+        String js = "(function() {" +
+            // Check if we're on the marketing page (no login form visible)
+            "var loginForm = document.querySelector('input[name=\"email\"]') || " +
+            "               document.querySelector('input[type=\"email\"]') || " +
+            "               document.querySelector('#email');" +
+            "var isChat = window.location.href.indexOf('/t/') > -1 || " +
+            "             window.location.href.indexOf('/messages') > -1;" +
+            // যদি login form নেই এবং chat page-ও না, তাহলে redirect
+            "if (!loginForm && !isChat && " +
+            "    window.location.href.indexOf('login') === -1) {" +
+            "  window.location.href = 'https://www.messenger.com/login';" +
+            "}" +
+            // Hide Facebook main site link
+            "var css = 'a[href*=\"facebook.com/home\"]{display:none!important;}' +" +
+            "          'a[aria-label=\"Facebook\"]{display:none!important;}';" +
+            "var style = document.getElementById('__fb_block__');" +
+            "if (!style) {" +
+            "  style = document.createElement('style');" +
+            "  style.id = '__fb_block__';" +
+            "  document.head && document.head.appendChild(style);" +
+            "}" +
+            "style.innerHTML = css;" +
             "})()";
-
         view.evaluateJavascript(js, null);
     }
 
-    // ── File chooser result ───────────────────────────────────────────
+    // ── File chooser result ───────────────────────────────────────────────────
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
@@ -244,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ── Back button ───────────────────────────────────────────────────
+    // ── Back button ───────────────────────────────────────────────────────────
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
