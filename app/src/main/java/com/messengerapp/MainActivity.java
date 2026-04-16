@@ -24,7 +24,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_CHOOSER_REQUEST = 100;
     private static final int PERMISSION_REQUEST    = 101;
 
-    // ── Allowed URL patterns ──────────────────────────────────────────────────
+    // ── Allowed URL patterns ────────────────────────────────────────────────
     private static final String[] ALLOWED = {
         "messenger.com",
         "facebook.com/login",
@@ -79,7 +79,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("https://www.messenger.com/login");
     }
 
-    // ── WebView setup ──────────────────────────────────────────────────────────
+    // ── WebView setup ──────────────────────────────────────────────────────
     private void setupWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -91,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // ☆ KEY FIX: Real desktop Chrome UA — Facebook desktop login, WebView-তে কাজ করবে
+        // Real desktop Chrome UA – Facebook desktop login, WebView-তে লগইন করতে
         s.setUserAgentString(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -106,8 +106,13 @@ public class MainActivity extends AppCompatActivity {
                 for (String allowed : ALLOWED) {
                     if (url.contains(allowed)) return false; // allow
                 }
-                // Block everything else on facebook.com (main feed etc.)
-                if (url.contains("facebook.com")) return true; // block
+                // ✅ FIX: facebook.com-এ block না করে messenger.com-এ redirect
+                // লগইনের পর Facebook facebook.com/-এ redirect করে, সেটাকে
+                // messenger.com/–এ পাঠাই যাতে login loop না হয়।
+                if (url.contains("facebook.com")) {
+                    view.loadUrl("https://www.messenger.com/");
+                    return true;
+                }
                 return false;
             }
 
@@ -157,8 +162,8 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ☆ KEY FIX: JavaScript inject করবে — শুধু facebook.com পেজে redirect করবে
-    // messenger.com-এ login সফল হলে আর redirect করবে না (এটাই আগের বাগ ছিল)
+    // ✅ FIX: JavaScript inject – facebook.com redirect loop বন্ধ
+    // লগইনের পর facebook.com-এ গেলে /login-এ না পাঠিয়ে messenger.com home-এ পাঠাই
     private void injectLoginFix(WebView view, String url) {
         String js = "(function() {" +
             // Check if we're on the marketing page (no login form visible)
@@ -167,14 +172,13 @@ public class MainActivity extends AppCompatActivity {
             "               document.querySelector('#email');" +
             "var isChat = window.location.href.indexOf('/t/') > -1 || " +
             "             window.location.href.indexOf('/messages') > -1;" +
-            // ✅ FIX: শুধু facebook.com-এ থাকলে redirect করো, messenger.com-এ নয়
-            // আগে এই check ছিল না, তাই login-এর পরে messenger.com home-এ গেলে
-            // আবার login page-এ redirect হয়ে যেত — এটাই Continue কাজ না করার কারণ!
             "var isFacebookSite = window.location.href.indexOf('facebook.com') > -1 && " +
             "                     window.location.href.indexOf('messenger.com') === -1;" +
+            // ✅ FIX: facebook.com non-login page-এ গেলে messenger.com HOME-এ পাঠাই
+            // আগে /login-এ পাঠানো হতো, তাই login loop হতো
             "if (!loginForm && !isChat && isFacebookSite && " +
             "    window.location.href.indexOf('login') === -1) {" +
-            "  window.location.href = 'https://www.messenger.com/login';" +
+            "  window.location.href = 'https://www.messenger.com/';" +
             "}" +
             // Hide Facebook main site link
             "var css = 'a[href*=\"facebook.com/home\"]{display:none!important;}' +" +
@@ -190,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
         view.evaluateJavascript(js, null);
     }
 
-    // ── File chooser result ─────────────────────────────────────────────────────
+    // ── File chooser result ────────────────────────────────────────────────
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
@@ -205,7 +209,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ── Back button ─────────────────────────────────────────────────────────────
+    // ── Back button ───────────────────────────────────────────────────────
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
