@@ -81,7 +81,7 @@ public class MainActivity extends AppCompatActivity {
 
         requestAppPermissions();
         setupWebView();
-        webView.loadUrl("https://www.messenger.com");
+        webView.loadUrl("https://www.messenger.com/login");
     }
 
     // ── Permissions ───────────────────────────────────────────────────
