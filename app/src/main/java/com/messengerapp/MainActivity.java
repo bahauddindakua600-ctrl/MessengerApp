@@ -24,7 +24,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int FILE_CHOOSER_REQUEST = 100;
     private static final int PERMISSION_REQUEST    = 101;
 
-    // ── Allowed URL patterns ─────────────────────────────────────────────────
+    // ── Allowed URL patterns ──────────────────────────────────────────────────
     private static final String[] ALLOWED = {
         "messenger.com",
         "facebook.com/login",
@@ -76,11 +76,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(root);
 
         setupWebView();
-        // messenger.com/login এ লোড করো
         webView.loadUrl("https://www.messenger.com/login");
     }
 
-    // ── WebView setup ─────────────────────────────────────────────────────────
+    // ── WebView setup ──────────────────────────────────────────────────────────
     private void setupWebView() {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -92,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
         s.setUseWideViewPort(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // ★ KEY FIX: Real desktop Chrome UA — Facebook desktop login WebView-এ কাজ করে
+        // ☆ KEY FIX: Real desktop Chrome UA — Facebook desktop login, WebView-তে কাজ করবে
         s.setUserAgentString(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -158,9 +157,9 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ★ KEY FIX: JavaScript inject করে marketing page redirect ঠেকাও
+    // ☆ KEY FIX: JavaScript inject করবে — শুধু facebook.com পেজে redirect করবে
+    // messenger.com-এ login সফল হলে আর redirect করবে না (এটাই আগের বাগ ছিল)
     private void injectLoginFix(WebView view, String url) {
-        // যদি marketing page-এ redirect হয়, force করে login page-এ নিয়ে যাও
         String js = "(function() {" +
             // Check if we're on the marketing page (no login form visible)
             "var loginForm = document.querySelector('input[name=\"email\"]') || " +
@@ -168,8 +167,12 @@ public class MainActivity extends AppCompatActivity {
             "               document.querySelector('#email');" +
             "var isChat = window.location.href.indexOf('/t/') > -1 || " +
             "             window.location.href.indexOf('/messages') > -1;" +
-            // যদি login form নেই এবং chat page-ও না, তাহলে redirect
-            "if (!loginForm && !isChat && " +
+            // ✅ FIX: শুধু facebook.com-এ থাকলে redirect করো, messenger.com-এ নয়
+            // আগে এই check ছিল না, তাই login-এর পরে messenger.com home-এ গেলে
+            // আবার login page-এ redirect হয়ে যেত — এটাই Continue কাজ না করার কারণ!
+            "var isFacebookSite = window.location.href.indexOf('facebook.com') > -1 && " +
+            "                     window.location.href.indexOf('messenger.com') === -1;" +
+            "if (!loginForm && !isChat && isFacebookSite && " +
             "    window.location.href.indexOf('login') === -1) {" +
             "  window.location.href = 'https://www.messenger.com/login';" +
             "}" +
@@ -187,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
         view.evaluateJavascript(js, null);
     }
 
-    // ── File chooser result ───────────────────────────────────────────────────
+    // ── File chooser result ─────────────────────────────────────────────────────
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
@@ -202,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ── Back button ───────────────────────────────────────────────────────────
+    // ── Back button ─────────────────────────────────────────────────────────────
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) webView.goBack();
